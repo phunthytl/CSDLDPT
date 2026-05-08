@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kết quả tìm kiếm</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <section class="card hero">
+      <p class="eyebrow">Kết quả truy vấn</p>
+      <h1>{{ query_name }}</h1>
+      <audio controls src="{{ query_url }}"></audio>
+      <p><a href="{{ url_for('index') }}">Tìm kiếm file khác</a></p>
+    </section>
+
+    <section class="card">
+      <h2>Kết quả trung gian</h2>
+      <dl class="stats four">
+        <div><dt>Query segments</dt><dd>{{ intermediate.query_segments }}</dd></div>
+        <div><dt>DB segments</dt><dd>{{ intermediate.db_segments }}</dd></div>
+        <div><dt>Tracks</dt><dd>{{ intermediate.tracks }}</dd></div>
+        <div><dt>Query duration</dt><dd>{{ '%.2f'|format(intermediate.duration) }}s</dd></div>
+      </dl>
+    </section>
+
+    <section class="results">
+      {% for item in results %}
+        <article class="card result">
+          <div class="rank">#{{ loop.index }}</div>
+          <div class="result-body">
+            <h2>{{ item.title or item.file_name }}</h2>
+            <p class="muted">{{ item.file_name }}</p>
+            <audio controls src="{{ item.audio_url }}"></audio>
+            <dl class="details">
+              <div><dt>Similarity</dt><dd>{{ '%.4f'|format(item.score) }}</dd></div>
+              <div><dt>Segment khớp nhất</dt><dd>{{ item.best_segment_index }} ({{ '%.2f'|format(item.best_segment_start) }}s - {{ '%.2f'|format(item.best_segment_end) }}s)</dd></div>
+              <div><dt>Thời lượng</dt><dd>{{ '%.2f'|format(item.duration or 0) }}s</dd></div>
+              <div><dt>Định dạng</dt><dd>{{ item.format }}</dd></div>
+            </dl>
+            {% if item.source_url %}<p><a href="{{ item.source_url }}" target="_blank" rel="noreferrer">Nguồn Pixabay</a></p>{% endif %}
+          </div>
+        </article>
+      {% else %}
+        <section class="card"><p>Không có kết quả phù hợp.</p></section>
+      {% endfor %}
+    </section>
+  </main>
+</body>
+</html>

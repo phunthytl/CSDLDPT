@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tìm kiếm nhạc tương đồng</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <section class="card hero">
+      <p class="eyebrow">SQLite3 + Flask demo</p>
+      <h1>Tìm kiếm bản nhạc tương đồng bằng âm thanh</h1>
+      <p class="muted">Upload một đoạn audio, hệ thống trích xuất vector 38 chiều theo cửa sổ 5 giây và trả về 5 file giống nhất.</p>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Trạng thái database</h2>
+        <dl class="stats">
+          <div><dt>Tracks</dt><dd>{{ summary.tracks }}</dd></div>
+          <div><dt>Segments</dt><dd>{{ summary.segments }}</dd></div>
+          <div><dt>Feature stats</dt><dd>{{ summary.stats }}/38</dd></div>
+        </dl>
+        {% if summary.stats < 38 %}
+          <p class="notice">Chưa có database hoàn chỉnh. Chạy lệnh <code>python build_database.py</code> trước khi demo.</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h2>Upload file truy vấn</h2>
+        {% if error %}<p class="error">{{ error }}</p>{% endif %}
+        <form action="{{ url_for('search') }}" method="post" enctype="multipart/form-data">
+          <input type="file" name="audio_file" accept="audio/*" required>
+          <button type="submit">Tìm 5 bản giống nhất</button>
+        </form>
+        <p class="muted small">Hỗ trợ: mp3, wav, m4a, ogg, flac, aac, webm.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
