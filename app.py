@@ -5,8 +5,8 @@ from uuid import uuid4
 from flask import Flask, abort, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
-from audio_features import cosine_similarity, extract_features, minmax_normalize
-from database import database_summary, get_connection, load_feature_stats, load_search_segments
+from audio_features import cosine_similarity, extract_features
+from database import database_summary, get_connection, load_search_segments
 
 ALLOWED_EXTENSIONS = {"mp3", "wav", "m4a", "ogg", "flac", "aac", "webm"}
 UPLOAD_FOLDER = Path("uploads")
@@ -41,7 +41,11 @@ def aggregate_results(query_segments, db_segments):
             track_id = db_segment["track_id"]
             current = best_by_track.get(track_id)
             if current is None or score > current["score"]:
-                best_by_track[track_id] = {"score": score, "segment": db_segment}
+                best_by_track[track_id] = {
+                    "score": score,
+                    "query_segment": query_segment,
+                    "db_segment": db_segment,
+                }
 
         for track_id, match in best_by_track.items():
             track_scores[track_id].append(match["score"])
@@ -51,21 +55,27 @@ def aggregate_results(query_segments, db_segments):
 
     results = []
     for track_id, scores in track_scores.items():
-        best_segment = track_best_matches[track_id]["segment"]
+        best_match = track_best_matches[track_id]
+        query_segment = best_match["query_segment"]
+        db_segment = best_match["db_segment"]
         results.append(
             {
                 "track_id": track_id,
-                "title": best_segment["title"],
-                "file_name": best_segment["file_name"],
-                "file_path": best_segment["file_path"],
-                "duration": best_segment["duration"],
-                "format": best_segment["format"],
-                "source_url": best_segment["source_url"],
+                "title": db_segment["title"],
+                "file_name": db_segment["file_name"],
+                "file_path": db_segment["file_path"],
+                "duration": db_segment["duration"],
+                "format": db_segment["format"],
+                "source_url": db_segment["source_url"],
                 "score": sum(scores) / len(scores),
-                "best_segment_index": best_segment["segment_index"],
-                "best_segment_start": best_segment["start_time"],
-                "best_segment_end": best_segment["end_time"],
-                "audio_url": url_for("audio_file", filename=Path(best_segment["file_path"]).name),
+                "best_pair_score": best_match["score"],
+                "query_segment_index": query_segment["segment_index"],
+                "query_segment_start": query_segment["start_time"],
+                "query_segment_end": query_segment["end_time"],
+                "db_segment_index": db_segment["segment_index"],
+                "db_segment_start": db_segment["start_time"],
+                "db_segment_end": db_segment["end_time"],
+                "audio_url": url_for("audio_file", filename=Path(db_segment["file_path"]).name),
             }
         )
 
@@ -92,22 +102,18 @@ def search():
 
     try:
         with get_connection() as conn:
-            mins, maxs = load_feature_stats(conn)
             db_segments = load_search_segments(conn)
             summary = database_summary(conn)
 
-        if len(mins) == 0 or len(maxs) == 0 or not db_segments:
+        if not db_segments:
             return render_template(
                 "index.html",
                 summary=summary,
-                error="Database chưa sẵn sàng. Hãy chạy: python build_database.py",
+                error="Database chưa sẵn sàng. Hãy chạy lại: python build_database.py",
             )
 
         extracted = extract_features(upload_path)
-        query_segments = []
-        for segment in extracted["segments"]:
-            segment["normalized_vector"] = minmax_normalize(segment["feature_vector"], mins, maxs)
-            query_segments.append(segment)
+        query_segments = extracted["segments"]
 
         results = aggregate_results(query_segments, db_segments)
         intermediate = {
@@ -115,6 +121,8 @@ def search():
             "db_segments": len(db_segments),
             "tracks": summary["tracks"],
             "duration": extracted["duration"],
+            "feature_dimension": summary["feature_dimension"],
+            "normalization": summary["normalization"],
         }
 
         return render_template(

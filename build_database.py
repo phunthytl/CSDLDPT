@@ -1,10 +1,8 @@
 import json
 from pathlib import Path
 
-import numpy as np
-
-from audio_features import FEATURE_DIMENSION, extract_features, minmax_normalize
-from database import get_connection, init_db, insert_segment, insert_track, reset_db, save_feature_stats
+from audio_features import FEATURE_DIMENSION, extract_features
+from database import get_connection, insert_segment, insert_track, reset_db
 
 METADATA_PATH = Path("pixabay_music.json")
 
@@ -30,18 +28,24 @@ def main():
 
     conn = get_connection()
     reset_db(conn)
-
-    pending_segments = []
     failed = []
+    total_segments = 0
 
-    print(f"Bắt đầu trích xuất {len(records)} file âm thanh...")
+    print(f"Bắt đầu build SQLite với vector {FEATURE_DIMENSION} chiều, chuẩn hóa L2...")
+    print(f"Số file hợp lệ: {len(records)}")
+
     for index, record in enumerate(records, start=1):
         path = record["local_file"]
         try:
             extracted = extract_features(path)
             track_id = insert_track(conn, record, extracted)
             for segment in extracted["segments"]:
-                pending_segments.append((track_id, segment))
+                if len(segment["feature_vector"]) != FEATURE_DIMENSION:
+                    raise ValueError(
+                        f"Sai số chiều vector: {len(segment['feature_vector'])} != {FEATURE_DIMENSION}"
+                    )
+                insert_segment(conn, track_id, segment)
+                total_segments += 1
             conn.commit()
             print(f"[{index}/{len(records)}] OK {path} - {len(extracted['segments'])} segments")
         except Exception as exc:
@@ -49,29 +53,11 @@ def main():
             failed.append((path, str(exc)))
             print(f"[{index}/{len(records)}] LỖI {path}: {exc}")
 
-    if not pending_segments:
-        raise SystemExit("Không trích xuất được segment nào")
-
-    vectors = np.asarray([segment["feature_vector"] for _, segment in pending_segments], dtype=np.float64)
-    if vectors.shape[1] != FEATURE_DIMENSION:
-        raise SystemExit(f"Sai số chiều vector: {vectors.shape[1]} != {FEATURE_DIMENSION}")
-
-    mins = vectors.min(axis=0).tolist()
-    maxs = vectors.max(axis=0).tolist()
-    save_feature_stats(conn, mins, maxs)
-
-    print("Đang lưu segment đã chuẩn hóa vào SQLite...")
-    for track_id, segment in pending_segments:
-        segment["normalized_vector"] = minmax_normalize(segment["feature_vector"], mins, maxs)
-        insert_segment(conn, track_id, segment)
-    conn.commit()
-
     summary = conn.execute(
         """
         SELECT
             (SELECT COUNT(*) FROM tracks) AS tracks,
-            (SELECT COUNT(*) FROM track_segments) AS segments,
-            (SELECT COUNT(*) FROM feature_stats) AS stats
+            (SELECT COUNT(*) FROM track_segments) AS segments
         """
     ).fetchone()
     conn.close()
@@ -79,7 +65,8 @@ def main():
     print("Hoàn thành build database.")
     print(f"Tracks: {summary['tracks']}")
     print(f"Segments: {summary['segments']}")
-    print(f"Feature stats: {summary['stats']}")
+    print(f"Feature dimension: {FEATURE_DIMENSION}")
+    print("Normalization: L2")
     if failed:
         print(f"File lỗi: {len(failed)}")
         for path, error in failed[:10]:
@@ -87,5 +74,4 @@ def main():
 
 
 if __name__ == "__main__":
-    init_db(get_connection())
     main()

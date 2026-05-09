@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("music_search.db")
+DB_PATH = Path("musics.db")
 
 
 def get_connection(db_path=DB_PATH):
@@ -23,7 +23,6 @@ def init_db(conn):
             file_path TEXT NOT NULL UNIQUE,
             duration REAL,
             format TEXT,
-            status TEXT
         );
 
         CREATE TABLE IF NOT EXISTS track_segments (
@@ -32,24 +31,34 @@ def init_db(conn):
             segment_index INTEGER NOT NULL,
             start_time REAL NOT NULL,
             end_time REAL NOT NULL,
-            zcr REAL NOT NULL,
-            rms REAL NOT NULL,
-            tempo REAL NOT NULL,
-            onset_strength REAL NOT NULL,
-            spectral_centroid REAL NOT NULL,
-            spectral_bandwidth REAL NOT NULL,
-            mfcc TEXT NOT NULL,
-            chroma TEXT NOT NULL,
-            spectral_contrast TEXT NOT NULL,
-            feature_vector TEXT NOT NULL,
-            normalized_vector TEXT,
-            FOREIGN KEY (track_id) REFERENCES tracks(track_id) ON DELETE CASCADE
-        );
 
-        CREATE TABLE IF NOT EXISTS feature_stats (
-            feature_index INTEGER PRIMARY KEY,
-            min_value REAL NOT NULL,
-            max_value REAL NOT NULL
+            tempo REAL NOT NULL,
+            onset_mean REAL NOT NULL,
+            onset_std REAL NOT NULL,
+            onset_density REAL NOT NULL,
+
+            rms_mean REAL NOT NULL,
+            rms_std REAL NOT NULL,
+            zcr_mean REAL NOT NULL,
+            zcr_std REAL NOT NULL,
+
+            spectral_centroid_mean REAL NOT NULL,
+            spectral_centroid_std REAL NOT NULL,
+            spectral_bandwidth_mean REAL NOT NULL,
+            spectral_bandwidth_std REAL NOT NULL,
+            spectral_rolloff_mean REAL NOT NULL,
+            spectral_rolloff_std REAL NOT NULL,
+
+            spectral_contrast_mean TEXT NOT NULL,
+            spectral_contrast_std TEXT NOT NULL,
+            mfcc_mean TEXT NOT NULL,
+            mfcc_std TEXT NOT NULL,
+            chroma_mean TEXT NOT NULL,
+            chroma_std TEXT NOT NULL,
+            feature_vector TEXT NOT NULL,
+            normalized_vector TEXT NOT NULL,
+
+            FOREIGN KEY (track_id) REFERENCES tracks(track_id) ON DELETE CASCADE
         );
         """
     )
@@ -61,7 +70,6 @@ def reset_db(conn):
         """
         DROP TABLE IF EXISTS track_segments;
         DROP TABLE IF EXISTS tracks;
-        DROP TABLE IF EXISTS feature_stats;
         """
     )
     conn.commit()
@@ -73,8 +81,8 @@ def insert_track(conn, record, extracted):
     cursor = conn.execute(
         """
         INSERT INTO tracks (
-            title, source_url, mp3_url, file_name, file_path, duration, format, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            title, source_url, mp3_url, file_name, file_path, duration, format
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             record.get("title", ""),
@@ -84,53 +92,44 @@ def insert_track(conn, record, extracted):
             file_path,
             extracted["duration"],
             extracted["format"],
-            record.get("status", ""),
         ),
     )
     return cursor.lastrowid
 
 
 def insert_segment(conn, track_id, segment):
+    vector = segment["feature_vector"]
+    normalized = segment["normalized_vector"]
+
     conn.execute(
         """
         INSERT INTO track_segments (
             track_id, segment_index, start_time, end_time,
-            zcr, rms, tempo, onset_strength, spectral_centroid, spectral_bandwidth,
-            mfcc, chroma, spectral_contrast, feature_vector, normalized_vector
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            tempo, onset_mean, onset_std, onset_density,
+            rms_mean, rms_std, zcr_mean, zcr_std,
+            spectral_centroid_mean, spectral_centroid_std,
+            spectral_bandwidth_mean, spectral_bandwidth_std,
+            spectral_rolloff_mean, spectral_rolloff_std,
+            spectral_contrast_mean, spectral_contrast_std,
+            mfcc_mean, mfcc_std, chroma_mean, chroma_std,
+            feature_vector, normalized_vector
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             track_id,
             segment["segment_index"],
             segment["start_time"],
             segment["end_time"],
-            segment["zcr"],
-            segment["rms"],
-            segment["tempo"],
-            segment["onset_strength"],
-            segment["spectral_centroid"],
-            segment["spectral_bandwidth"],
-            json.dumps(segment["mfcc"]),
-            json.dumps(segment["chroma"]),
-            json.dumps(segment["spectral_contrast"]),
-            json.dumps(segment["feature_vector"]),
-            json.dumps(segment.get("normalized_vector")) if segment.get("normalized_vector") else None,
+            json.dumps(segment["spectral_contrast_mean"]),
+            json.dumps(segment["spectral_contrast_std"]),
+            json.dumps(segment["mfcc_mean"]),
+            json.dumps(segment["mfcc_std"]),
+            json.dumps(segment["chroma_mean"]),
+            json.dumps(segment["chroma_std"]),
+            json.dumps(vector),
+            json.dumps(normalized),
         ),
     )
-
-
-def save_feature_stats(conn, mins, maxs):
-    conn.execute("DELETE FROM feature_stats")
-    conn.executemany(
-        "INSERT INTO feature_stats (feature_index, min_value, max_value) VALUES (?, ?, ?)",
-        [(index, float(min_value), float(max_value)) for index, (min_value, max_value) in enumerate(zip(mins, maxs))],
-    )
-    conn.commit()
-
-
-def load_feature_stats(conn):
-    rows = conn.execute("SELECT feature_index, min_value, max_value FROM feature_stats ORDER BY feature_index").fetchall()
-    return [row["min_value"] for row in rows], [row["max_value"] for row in rows]
 
 
 def load_search_segments(conn):
@@ -142,7 +141,7 @@ def load_search_segments(conn):
         FROM track_segments s
         JOIN tracks t ON t.track_id = s.track_id
         WHERE s.normalized_vector IS NOT NULL
-        """
+        """,
     ).fetchall()
 
     segments = []
@@ -156,5 +155,13 @@ def load_search_segments(conn):
 def database_summary(conn):
     tracks = conn.execute("SELECT COUNT(*) AS count FROM tracks").fetchone()["count"]
     segments = conn.execute("SELECT COUNT(*) AS count FROM track_segments").fetchone()["count"]
-    stats = conn.execute("SELECT COUNT(*) AS count FROM feature_stats").fetchone()["count"]
-    return {"tracks": tracks, "segments": segments, "stats": stats}
+    ready_segments = conn.execute(
+        "SELECT COUNT(*) AS count FROM track_segments WHERE normalized_vector IS NOT NULL"
+    ).fetchone()["count"]
+    return {
+        "tracks": tracks,
+        "segments": segments,
+        "ready_segments": ready_segments,
+        "feature_dimension": 78,
+        "normalization": "L2",
+    }

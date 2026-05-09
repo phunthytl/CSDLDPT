@@ -21,6 +21,7 @@
         <div><dt>Query segments</dt><dd>{{ intermediate.query_segments }}</dd></div>
         <div><dt>DB segments</dt><dd>{{ intermediate.db_segments }}</dd></div>
         <div><dt>Tracks</dt><dd>{{ intermediate.tracks }}</dd></div>
+        <div><dt>Vector</dt><dd>{{ intermediate.feature_dimension }}D {{ intermediate.normalization }}</dd></div>
         <div><dt>Query duration</dt><dd>{{ '%.2f'|format(intermediate.duration) }}s</dd></div>
       </dl>
     </section>
@@ -34,8 +35,9 @@
             <p class="muted">{{ item.file_name }}</p>
             <audio controls src="{{ item.audio_url }}"></audio>
             <dl class="details">
-              <div><dt>Similarity</dt><dd>{{ '%.4f'|format(item.score) }}</dd></div>
-              <div><dt>Segment khớp nhất</dt><dd>{{ item.best_segment_index }} ({{ '%.2f'|format(item.best_segment_start) }}s - {{ '%.2f'|format(item.best_segment_end) }}s)</dd></div>
+              <div><dt>Similarity trung bình</dt><dd>{{ '%.4f'|format(item.score) }}</dd></div>
+              <div><dt>Cặp segment khớp nhất</dt><dd>Upload segment {{ item.query_segment_index }} ({{ '%.2f'|format(item.query_segment_start) }}s - {{ '%.2f'|format(item.query_segment_end) }}s) ↔ DB segment {{ item.db_segment_index }} ({{ '%.2f'|format(item.db_segment_start) }}s - {{ '%.2f'|format(item.db_segment_end) }}s)</dd></div>
+              <div><dt>Điểm cặp segment</dt><dd>{{ '%.4f'|format(item.best_pair_score) }}</dd></div>
               <div><dt>Thời lượng</dt><dd>{{ '%.2f'|format(item.duration or 0) }}s</dd></div>
               <div><dt>Định dạng</dt><dd>{{ item.format }}</dd></div>
             </dl>
