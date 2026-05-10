@@ -5,8 +5,9 @@ from uuid import uuid4
 from flask import Flask, abort, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
-from audio_features import cosine_similarity, extract_features
-from database import database_summary, get_connection, load_search_segments
+from audio_features import cosine_similarity, extract_features, l2_normalize
+from build_database import zscore_vector
+from database import database_summary, get_connection, load_feature_stats, load_search_segments
 
 ALLOWED_EXTENSIONS = {"mp3", "wav", "m4a", "ogg", "flac", "aac", "webm"}
 UPLOAD_FOLDER = Path("uploads")
@@ -28,6 +29,15 @@ def get_db_state():
             return database_summary(conn)
     except Exception:
         return {"tracks": 0, "segments": 0, "stats": 0}
+
+
+def normalize_query_segments(query_segments, stats):
+    mean_vector = stats["mean_vector"]
+    std_vector = stats["std_vector"]
+    for segment in query_segments:
+        z_vector = zscore_vector(segment["feature_vector"], mean_vector, std_vector)
+        segment["normalized_vector"] = l2_normalize(z_vector)
+    return query_segments
 
 
 def aggregate_results(query_segments, db_segments):
@@ -68,18 +78,17 @@ def aggregate_results(query_segments, db_segments):
                 "format": db_segment["format"],
                 "source_url": db_segment["source_url"],
                 "score": sum(scores) / len(scores),
-                "best_pair_score": best_match["score"],
-                "query_segment_index": query_segment["segment_index"],
+                "query_segment_number": query_segment["segment_index"] + 1,
                 "query_segment_start": query_segment["start_time"],
                 "query_segment_end": query_segment["end_time"],
-                "db_segment_index": db_segment["segment_index"],
+                "db_segment_number": db_segment["segment_index"] + 1,
                 "db_segment_start": db_segment["start_time"],
                 "db_segment_end": db_segment["end_time"],
                 "audio_url": url_for("audio_file", filename=Path(db_segment["file_path"]).name),
             }
         )
 
-    return sorted(results, key=lambda item: item["score"], reverse=True)[:5]
+    return sorted(results, key=lambda item: item["score"], reverse=True)
 
 
 @app.route("/")
@@ -103,19 +112,23 @@ def search():
     try:
         with get_connection() as conn:
             db_segments = load_search_segments(conn)
+            stats = load_feature_stats(conn)
             summary = database_summary(conn)
 
-        if not db_segments:
+        if not db_segments or stats is None:
             return render_template(
                 "index.html",
                 summary=summary,
                 error="Database chưa sẵn sàng. Hãy chạy lại: python build_database.py",
             )
 
-        extracted = extract_features(upload_path)
-        query_segments = extracted["segments"]
+        limit = request.form.get("result_limit", "5")
+        limit = 10 if limit == "10" else 5
 
-        results = aggregate_results(query_segments, db_segments)
+        extracted = extract_features(upload_path)
+        query_segments = normalize_query_segments(extracted["segments"], stats)
+
+        results = aggregate_results(query_segments, db_segments)[:limit]
         intermediate = {
             "query_segments": len(query_segments),
             "db_segments": len(db_segments),
@@ -123,6 +136,7 @@ def search():
             "duration": extracted["duration"],
             "feature_dimension": summary["feature_dimension"],
             "normalization": summary["normalization"],
+            "result_limit": limit,
         }
 
         return render_template(

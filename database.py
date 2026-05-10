@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import Path
 
 DB_PATH = Path("musics.db")
+FEATURE_STATS_KEY = "zscore"
 
 
 def get_connection(db_path=DB_PATH):
@@ -22,7 +23,7 @@ def init_db(conn):
             file_name TEXT NOT NULL,
             file_path TEXT NOT NULL UNIQUE,
             duration REAL,
-            format TEXT,
+            format TEXT
         );
 
         CREATE TABLE IF NOT EXISTS track_segments (
@@ -56,9 +57,15 @@ def init_db(conn):
             chroma_mean TEXT NOT NULL,
             chroma_std TEXT NOT NULL,
             feature_vector TEXT NOT NULL,
-            normalized_vector TEXT NOT NULL,
+            normalized_vector TEXT,
 
             FOREIGN KEY (track_id) REFERENCES tracks(track_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS feature_stats (
+            stats_key TEXT PRIMARY KEY,
+            mean_vector TEXT NOT NULL,
+            std_vector TEXT NOT NULL
         );
         """
     )
@@ -68,6 +75,7 @@ def init_db(conn):
 def reset_db(conn):
     conn.executescript(
         """
+        DROP TABLE IF EXISTS feature_stats;
         DROP TABLE IF EXISTS track_segments;
         DROP TABLE IF EXISTS tracks;
         """
@@ -120,6 +128,20 @@ def insert_segment(conn, track_id, segment):
             segment["segment_index"],
             segment["start_time"],
             segment["end_time"],
+            segment["tempo"],
+            segment["onset_mean"],
+            segment["onset_std"],
+            segment["onset_density"],
+            segment["rms_mean"],
+            segment["rms_std"],
+            segment["zcr_mean"],
+            segment["zcr_std"],
+            segment["spectral_centroid_mean"],
+            segment["spectral_centroid_std"],
+            segment["spectral_bandwidth_mean"],
+            segment["spectral_bandwidth_std"],
+            segment["spectral_rolloff_mean"],
+            segment["spectral_rolloff_std"],
             json.dumps(segment["spectral_contrast_mean"]),
             json.dumps(segment["spectral_contrast_std"]),
             json.dumps(segment["mfcc_mean"]),
@@ -130,6 +152,32 @@ def insert_segment(conn, track_id, segment):
             json.dumps(normalized),
         ),
     )
+
+
+def save_feature_stats(conn, mean_vector, std_vector):
+    conn.execute(
+        """
+        INSERT INTO feature_stats (stats_key, mean_vector, std_vector)
+        VALUES (?, ?, ?)
+        ON CONFLICT(stats_key) DO UPDATE SET
+            mean_vector = excluded.mean_vector,
+            std_vector = excluded.std_vector
+        """,
+        (FEATURE_STATS_KEY, json.dumps(mean_vector), json.dumps(std_vector)),
+    )
+
+
+def load_feature_stats(conn):
+    row = conn.execute(
+        "SELECT mean_vector, std_vector FROM feature_stats WHERE stats_key = ?",
+        (FEATURE_STATS_KEY,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "mean_vector": json.loads(row["mean_vector"]),
+        "std_vector": json.loads(row["std_vector"]),
+    }
 
 
 def load_search_segments(conn):
@@ -163,5 +211,5 @@ def database_summary(conn):
         "segments": segments,
         "ready_segments": ready_segments,
         "feature_dimension": 78,
-        "normalization": "L2",
+        "normalization": "Z-score + L2",
     }

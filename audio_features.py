@@ -50,20 +50,20 @@ def load_audio(path):
     return y.astype(np.float32), sr
 
 
-def _clean_array(values):
+def clean_array(values):
     arr = np.asarray(values, dtype=np.float64)
     return np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
 
 
-def _mean_std(values):
-    arr = _clean_array(values)
+def mean_std(values):
+    arr = clean_array(values)
     if arr.size == 0:
         return 0.0, 0.0
     return float(arr.mean()), float(arr.std())
 
 
-def _row_mean_std(matrix, rows):
-    arr = _clean_array(matrix)
+def row_mean_std(matrix, rows):
+    arr = clean_array(matrix)
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
     if arr.shape[0] < rows:
@@ -74,7 +74,7 @@ def _row_mean_std(matrix, rows):
     return means.astype(float).tolist(), stds.astype(float).tolist()
 
 
-def _estimate_tempo(onset_env, sr):
+def estimate_tempo(onset_env, sr):
     onset_frames = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, units="frames")
     if onset_frames.size <= 1:
         return 0.0, 0.0
@@ -88,7 +88,7 @@ def _estimate_tempo(onset_env, sr):
 
 
 def l2_normalize(vector):
-    arr = _clean_array(vector).reshape(-1)
+    arr = clean_array(vector).reshape(-1)
     norm = np.linalg.norm(arr)
     if norm == 0:
         return arr.astype(float).tolist()
@@ -101,62 +101,60 @@ def extract_segment_features(segment, sr):
 
     duration = segment.size / sr
 
-    zcr_mean, zcr_std = _mean_std(librosa.feature.zero_crossing_rate(y=segment))
-    rms_mean, rms_std = _mean_std(librosa.feature.rms(y=segment))
+    zcr_mean, zcr_std = mean_std(librosa.feature.zero_crossing_rate(y=segment))
+    rms_mean, rms_std = mean_std(librosa.feature.rms(y=segment))
 
     onset_env = librosa.onset.onset_strength(y=segment, sr=sr)
-    onset_mean, onset_std = _mean_std(onset_env)
-    tempo, onset_count = _estimate_tempo(onset_env, sr)
+    onset_mean, onset_std = mean_std(onset_env)
+    tempo, onset_count = estimate_tempo(onset_env, sr)
     onset_density = float(onset_count / duration) if duration > 0 else 0.0
 
-    centroid_mean, centroid_std = _mean_std(librosa.feature.spectral_centroid(y=segment, sr=sr))
-    bandwidth_mean, bandwidth_std = _mean_std(librosa.feature.spectral_bandwidth(y=segment, sr=sr))
-    rolloff_mean, rolloff_std = _mean_std(librosa.feature.spectral_rolloff(y=segment, sr=sr, roll_percent=0.85))
+    centroid_mean, centroid_std = mean_std(librosa.feature.spectral_centroid(y=segment, sr=sr))
+    bandwidth_mean, bandwidth_std = mean_std(librosa.feature.spectral_bandwidth(y=segment, sr=sr))
+    rolloff_mean, rolloff_std = mean_std(librosa.feature.spectral_rolloff(y=segment, sr=sr, roll_percent=0.85))
 
     try:
         contrast = librosa.feature.spectral_contrast(y=segment, sr=sr, n_bands=6)
     except Exception:
         contrast = np.zeros((N_CONTRAST, 1), dtype=np.float64)
-    contrast_mean, contrast_std = _row_mean_std(contrast, N_CONTRAST)
+    contrast_mean, contrast_std = row_mean_std(contrast, N_CONTRAST)
 
     mfcc = librosa.feature.mfcc(y=segment, sr=sr, n_mfcc=N_MFCC)
-    mfcc_mean, mfcc_std = _row_mean_std(mfcc, N_MFCC)
+    mfcc_mean, mfcc_std = row_mean_std(mfcc, N_MFCC)
 
     chroma = librosa.feature.chroma_stft(y=segment, sr=sr, n_chroma=N_CHROMA)
-    chroma_mean, chroma_std = _row_mean_std(chroma, N_CHROMA)
+    chroma_mean, chroma_std = row_mean_std(chroma, N_CHROMA)
 
-    rhythm = {
-        "tempo": float(tempo),
-        "onset_mean": float(onset_mean),
-        "onset_std": float(onset_std),
-        "onset_density": float(onset_density),
-    }
-    energy = {"rms_mean": float(rms_mean), "rms_std": float(rms_std)}
-    waveform = {"zcr_mean": float(zcr_mean), "zcr_std": float(zcr_std)}
-    spectral = {
-        "spectral_centroid_mean": float(centroid_mean),
-        "spectral_centroid_std": float(centroid_std),
-        "spectral_bandwidth_mean": float(bandwidth_mean),
-        "spectral_bandwidth_std": float(bandwidth_std),
-        "spectral_rolloff_mean": float(rolloff_mean),
-        "spectral_rolloff_std": float(rolloff_std),
-    }
+    tempo = float(tempo)
+    onset_mean = float(onset_mean)
+    onset_std = float(onset_std)
+    onset_density = float(onset_density)
+    rms_mean = float(rms_mean)
+    rms_std = float(rms_std)
+    zcr_mean = float(zcr_mean)
+    zcr_std = float(zcr_std)
+    centroid_mean = float(centroid_mean)
+    centroid_std = float(centroid_std)
+    bandwidth_mean = float(bandwidth_mean)
+    bandwidth_std = float(bandwidth_std)
+    rolloff_mean = float(rolloff_mean)
+    rolloff_std = float(rolloff_std)
 
     feature_vector = [
-        rhythm["tempo"],
-        rhythm["onset_mean"],
-        rhythm["onset_std"],
-        rhythm["onset_density"],
-        energy["rms_mean"],
-        energy["rms_std"],
-        waveform["zcr_mean"],
-        waveform["zcr_std"],
-        spectral["spectral_centroid_mean"],
-        spectral["spectral_centroid_std"],
-        spectral["spectral_bandwidth_mean"],
-        spectral["spectral_bandwidth_std"],
-        spectral["spectral_rolloff_mean"],
-        spectral["spectral_rolloff_std"],
+        tempo,
+        onset_mean,
+        onset_std,
+        onset_density,
+        rms_mean,
+        rms_std,
+        zcr_mean,
+        zcr_std,
+        centroid_mean,
+        centroid_std,
+        bandwidth_mean,
+        bandwidth_std,
+        rolloff_mean,
+        rolloff_std,
         *contrast_mean,
         *contrast_std,
         *mfcc_mean,
@@ -164,15 +162,25 @@ def extract_segment_features(segment, sr):
         *chroma_mean,
         *chroma_std,
     ]
-    feature_vector = _clean_array(feature_vector).astype(float).tolist()
+    feature_vector = clean_array(feature_vector).astype(float).tolist()
     if len(feature_vector) != FEATURE_DIMENSION:
         raise ValueError(f"Feature vector has {len(feature_vector)} dimensions, expected {FEATURE_DIMENSION}")
 
     return {
-        "rhythm": rhythm,
-        "energy": energy,
-        "waveform": waveform,
-        "spectral": spectral,
+        "tempo": float(tempo),
+        "onset_mean": float(onset_mean),
+        "onset_std": float(onset_std),
+        "onset_density": float(onset_density),
+        "rms_mean": float(rms_mean),
+        "rms_std": float(rms_std),
+        "zcr_mean": float(zcr_mean),
+        "zcr_std": float(zcr_std),
+        "spectral_centroid_mean": float(centroid_mean),
+        "spectral_centroid_std": float(centroid_std),
+        "spectral_bandwidth_mean": float(bandwidth_mean),
+        "spectral_bandwidth_std": float(bandwidth_std),
+        "spectral_rolloff_mean": float(rolloff_mean),
+        "spectral_rolloff_std": float(rolloff_std),
         "spectral_contrast_mean": contrast_mean,
         "spectral_contrast_std": contrast_std,
         "mfcc_mean": mfcc_mean,
@@ -219,8 +227,8 @@ def extract_features(path, window_seconds=WINDOW_SECONDS, hop_seconds=HOP_SECOND
 
 
 def cosine_similarity(a, b):
-    left = _clean_array(a).reshape(-1)
-    right = _clean_array(b).reshape(-1)
+    left = clean_array(a).reshape(-1)
+    right = clean_array(b).reshape(-1)
     denominator = np.linalg.norm(left) * np.linalg.norm(right)
     if denominator == 0:
         return 0.0

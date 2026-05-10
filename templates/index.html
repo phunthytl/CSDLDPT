@@ -11,7 +11,7 @@
     <section class="card hero">
       <p class="eyebrow">SQLite3 + Flask demo</p>
       <h1>Tìm kiếm bản nhạc tương đồng bằng âm thanh</h1>
-      <p class="muted">Upload một đoạn audio, hệ thống trích xuất vector {{ summary.feature_dimension }} chiều theo cửa sổ 5 giây, chuẩn hóa L2 và trả về 5 file giống nhất.</p>
+      <p class="muted">Upload một đoạn audio, hệ thống trích xuất vector {{ summary.feature_dimension }} chiều theo cửa sổ 5 giây, chuẩn hóa L2 và trả về các bản nhạc giống nhất.</p>
     </section>
 
     <section class="grid">
@@ -33,7 +33,12 @@
         {% if error %}<p class="error">{{ error }}</p>{% endif %}
         <form action="{{ url_for('search') }}" method="post" enctype="multipart/form-data">
           <input type="file" name="audio_file" accept="audio/*" required>
-          <button type="submit">Tìm 5 bản giống nhất</button>
+          <label class="field-label" for="result_limit">Số kết quả hiển thị</label>
+          <select id="result_limit" name="result_limit">
+            <option value="5" selected>5 bản ghi</option>
+            <option value="10">10 bản ghi</option>
+          </select>
+          <button type="submit">Tìm kiếm</button>
         </form>
         <p class="muted small">Hỗ trợ: mp3, wav, m4a, ogg, flac, aac, webm.</p>
       </div>

@@ -115,11 +115,26 @@ form {
   gap: 14px;
 }
 
-input[type="file"] {
+input[type="file"],
+select {
   border: 1px dashed #aab6c7;
   border-radius: 14px;
-  padding: 18px;
+  padding: 14px 18px;
   width: 100%;
+}
+
+select {
+  background: #ffffff;
+  border-style: solid;
+  color: #172033;
+  font-size: 15px;
+}
+
+.field-label {
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: -6px;
 }
 
 button {
