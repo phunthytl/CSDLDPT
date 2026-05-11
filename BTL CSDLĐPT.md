@@ -691,24 +691,30 @@ Top 5 hoặc Top 10 bản nhạc tương đồng nhất
 
 Trong kiến trúc này, SQLite đóng vai trò lưu trữ dữ liệu đã xử lý, bao gồm thông tin file nhạc, vector đặc trưng gốc, vector đã chuẩn hóa và thống kê chuẩn hóa. Flask đóng vai trò giao diện web để người dùng upload file truy vấn và xem kết quả tìm kiếm.
 
-## **4.2. Các thành phần chính của hệ thống**
+## **4.2. Quy trình thực hiện yêu cầu**
 
-### ***4.2.1. Module crawl dữ liệu***
+Dựa trên yêu cầu của đề bài, hệ thống được thực hiện theo một quy trình hoàn chỉnh từ thu thập dữ liệu, xây dựng cơ sở dữ liệu đặc trưng đến xử lý file truy vấn và trả về kết quả tìm kiếm. Quy trình này có thể mô tả thành các bước sau:
 
-Module crawl dữ liệu có nhiệm vụ thu thập các bản nhạc không lời từ Pixabay Music. Với mỗi bản nhạc, crawler lấy thông tin tiêu đề, đường dẫn trang nguồn, đường dẫn file MP3 và tải file về thư mục `musics/`.
+### ***Bước 1: Thu thập dữ liệu nhạc không lời***
 
-Trong quá trình tải, hệ thống kiểm tra URL và nội dung tải về để tránh lưu nhầm ảnh thumbnail hoặc file không phải audio. Các file quá nhỏ hoặc có định dạng nội dung không phù hợp sẽ bị bỏ qua. Crawler cũng sử dụng fuzzy matching để hạn chế tải nhiều phiên bản gần trùng nhau của cùng một bản nhạc.
+Trước hết, hệ thống cần xây dựng bộ dữ liệu âm thanh ban đầu. Dữ liệu được thu thập từ Pixabay Music bằng script crawler. Với mỗi bản nhạc, hệ thống lấy các thông tin cơ bản như tiêu đề bản nhạc, đường dẫn trang nguồn, đường dẫn file MP3 và tải file âm thanh về thư mục `musics/`.
 
-Đối với thời lượng file, hệ thống không cắt cứng đúng 30 giây. Thay vào đó, crawler tìm điểm lặng hoặc vùng âm lượng thấp gần mốc 30 giây để cắt tự nhiên hơn. Cách làm này giúp hạn chế hiện tượng đoạn nhạc bị ngắt giữa chừng.
+Trong quá trình crawl, hệ thống kiểm tra nội dung tải về để tránh lưu nhầm file không phải âm thanh như ảnh thumbnail hoặc nội dung HTML. Các file có kích thước quá nhỏ hoặc nội dung không hợp lệ sẽ bị bỏ qua. Ngoài ra, crawler sử dụng fuzzy matching để hạn chế tải nhiều bản gần trùng nhau theo tên bài hát.
 
-Kết quả của module crawl gồm:
+Các file âm thanh sau khi tải về được xử lý để có thời lượng phù hợp. Hệ thống ưu tiên cắt tại điểm lặng hoặc vùng âm lượng thấp gần mốc 30 giây nhằm tránh làm đoạn nhạc bị ngắt đột ngột. Kết quả của bước này gồm:
 
-- Các file âm thanh trong thư mục `musics/`.
-- File metadata `pixabay_music.json` chứa thông tin các file tải thành công.
+- Thư mục `musics/` chứa các file âm thanh đã tải.
+- File `pixabay_music.json` chứa metadata của các bản nhạc tải thành công.
 
-### ***4.2.2. Module trích xuất đặc trưng***
+### ***Bước 2: Đọc danh sách file âm thanh hợp lệ***
 
-Module trích xuất đặc trưng đọc từng file âm thanh, chuyển tín hiệu về mono và chia thành các segment bằng cửa sổ trượt:
+Sau khi đã có dữ liệu, hệ thống đọc metadata từ file `pixabay_music.json`. Với mỗi bản ghi, hệ thống kiểm tra trường `local_file` để xác định file âm thanh có thực sự tồn tại trong thư mục dữ liệu hay không.
+
+Chỉ các file tồn tại và đọc được mới được đưa vào bước xây dựng cơ sở dữ liệu. Việc kiểm tra này giúp tránh lỗi khi trích xuất đặc trưng và đảm bảo database chỉ lưu những bản nhạc hợp lệ.
+
+### ***Bước 3: Chia file âm thanh thành các đoạn nhỏ***
+
+Mỗi file âm thanh hợp lệ được chia thành các đoạn nhỏ bằng cửa sổ trượt. Tham số chia đoạn được sử dụng như sau:
 
 ```text
 Window = 5 giây
@@ -716,58 +722,103 @@ Hop = 2,5 giây
 Overlap = 50%
 ```
 
-Với mỗi segment, hệ thống trích xuất vector đặc trưng 78 chiều, gồm các nhóm đặc trưng chính:
+Cách chia này giúp hệ thống phân tích nội dung âm thanh ở mức cục bộ thay vì chỉ biểu diễn cả bài nhạc bằng một vector duy nhất. Với file có thời lượng xấp xỉ 30 giây, số segment thường vào khoảng 11 đoạn.
 
-- Đặc trưng miền thời gian và nhịp điệu: Tempo, Onset, RMS, ZCR.
-- Đặc trưng phổ tần số: Spectral Centroid, Spectral Bandwidth, Spectral Rolloff, Spectral Contrast.
-- Đặc trưng cepstral: MFCC.
-- Đặc trưng hòa âm/cao độ: Chroma.
+Việc chia segment cũng phù hợp với truy vấn thực tế, vì người dùng có thể upload một đoạn ngắn của bài nhạc chứ không nhất thiết là toàn bộ file.
 
-Mỗi segment được lưu kèm thông tin `segment_index`, `start_time`, `end_time`, `feature_vector` và `normalized_vector`.
+### ***Bước 4: Trích xuất đặc trưng âm thanh cho từng segment***
 
-### ***4.2.3. Module xây dựng database***
+Với mỗi segment, hệ thống trích xuất một vector đặc trưng 78 chiều. Vector này mô tả nhiều khía cạnh khác nhau của tín hiệu âm thanh như nhịp điệu, năng lượng, dạng sóng, phổ tần số, âm sắc và hòa âm.
 
-Module xây dựng database đọc metadata từ `pixabay_music.json`, sau đó lần lượt xử lý các file âm thanh hợp lệ. Cơ sở dữ liệu SQLite gồm ba bảng chính:
+Các nhóm đặc trưng chính gồm:
 
-- `tracks`: lưu thông tin chung của file nhạc.
-- `track_segments`: lưu thông tin từng segment và vector đặc trưng.
-- `feature_stats`: lưu `mean_vector` và `std_vector` để chuẩn hóa Z-score.
+- **Tempo, Onset**: mô tả nhịp độ và sự xuất hiện của các điểm nhấn trong âm thanh.
+- **RMS, ZCR**: mô tả năng lượng và đặc điểm miền thời gian của tín hiệu.
+- **Spectral Centroid, Spectral Bandwidth, Spectral Rolloff**: mô tả phân bố năng lượng trong miền tần số.
+- **Spectral Contrast**: mô tả độ tương phản giữa các dải tần.
+- **MFCC**: mô tả âm sắc của âm thanh.
+- **Chroma**: mô tả thông tin cao độ và hòa âm.
 
-Quá trình build database được thực hiện theo các bước:
+Kết quả của bước này là `feature_vector` gốc của từng đoạn âm thanh.
 
-1. Đọc danh sách file hợp lệ từ metadata.
+### ***Bước 5: Lưu metadata và vector gốc vào SQLite***
 
-2. Với từng file, trích xuất các segment và vector đặc trưng gốc.
+Sau khi trích xuất đặc trưng, hệ thống lưu thông tin vào cơ sở dữ liệu SQLite. Cơ sở dữ liệu gồm ba bảng chính:
 
-3. Insert thông tin track và các segment vào SQLite.
+- `tracks`: lưu thông tin chung của từng bản nhạc như tiêu đề, đường dẫn nguồn, tên file, đường dẫn file và thời lượng.
+- `track_segments`: lưu thông tin từng đoạn âm thanh, thời gian bắt đầu, thời gian kết thúc, các thuộc tính đặc trưng và `feature_vector` gốc.
+- `feature_stats`: lưu các thống kê dùng cho chuẩn hóa vector.
 
-4. Sau khi có toàn bộ `feature_vector`, tính `mean_vector` và `std_vector` trên toàn bộ cơ sở dữ liệu.
+Ở bước này, các vector đặc trưng gốc được lưu lại để phục vụ tính toán thống kê chuẩn hóa trên toàn bộ cơ sở dữ liệu.
 
-5. Chuẩn hóa từng vector theo công thức Z-score.
+### ***Bước 6: Tính thống kê chuẩn hóa trên toàn bộ database***
 
-6. Chuẩn hóa L2 vector sau Z-score.
-
-7. Cập nhật kết quả cuối cùng vào trường `normalized_vector`.
-
-Cách làm này đảm bảo mọi vector trong database được chuẩn hóa theo cùng một hệ quy chiếu.
-
-### ***4.2.4. Module web demo Flask***
-
-Module Flask cung cấp giao diện web để người dùng thực hiện truy vấn. Giao diện gồm:
-
-- Trang upload file âm thanh.
-- Hiển thị trạng thái database.
-- Cho phép chọn số kết quả cần hiển thị: 5 hoặc 10 bản ghi.
-- Trang kết quả hiển thị file truy vấn, danh sách bản nhạc tương đồng, điểm similarity và thông tin segment khớp nhất.
-
-Các route chính gồm:
+Sau khi đã trích xuất toàn bộ vector của các segment, hệ thống tính thống kê trên toàn bộ tập vector trong cơ sở dữ liệu. Hai vector thống kê được sử dụng là:
 
 ```text
-/              : Trang upload và trạng thái database
-/search        : Xử lý file truy vấn và tìm kiếm tương đồng
-/audio/<file>  : Phục vụ file nhạc trong database
-/uploads/<file>: Phục vụ file truy vấn đã upload
+mean_vector: vector trung bình 78 chiều
+std_vector : vector độ lệch chuẩn 78 chiều
 ```
+
+Hai vector này được lưu vào bảng `feature_stats`. Đây là thông tin quan trọng để đảm bảo mọi vector trong database và vector của file truy vấn sau này đều được chuẩn hóa theo cùng một hệ quy chiếu.
+
+### ***Bước 7: Chuẩn hóa vector đặc trưng trong database***
+
+Mỗi `feature_vector` gốc trong bảng `track_segments` được chuẩn hóa theo hai bước:
+
+```text
+feature_vector → Z-score → L2 Normalization
+```
+
+Trong đó, Z-score giúp cân bằng thang đo giữa các chiều đặc trưng, còn L2 Normalization đưa vector về vector đơn vị để phù hợp với cosine similarity.
+
+Kết quả chuẩn hóa cuối cùng được lưu vào trường `normalized_vector` của bảng `track_segments`. Sau bước này, cơ sở dữ liệu đã sẵn sàng để phục vụ tìm kiếm tương đồng.
+
+### ***Bước 8: Người dùng upload file âm thanh truy vấn***
+
+Khi sử dụng hệ thống demo, người dùng truy cập giao diện web Flask và upload một file âm thanh cần tìm kiếm. File truy vấn có thể là một đoạn nhạc đã có trong cơ sở dữ liệu hoặc một file âm thanh chưa có trong dữ liệu.
+
+Hệ thống kiểm tra định dạng file để đảm bảo file thuộc nhóm định dạng được hỗ trợ như `mp3`, `wav`, `m4a`, `ogg`, `flac`, `aac` hoặc `webm`. Sau đó, file được lưu tạm vào thư mục `uploads/` để xử lý.
+
+### ***Bước 9: Trích xuất và chuẩn hóa đặc trưng của file truy vấn***
+
+File truy vấn được xử lý bằng cùng quy trình với dữ liệu trong database. Cụ thể, hệ thống chia file thành segment bằng cửa sổ 5 giây, bước trượt 2,5 giây, sau đó trích xuất vector đặc trưng 78 chiều cho từng segment.
+
+Vector truy vấn không được chuẩn hóa bằng thống kê riêng của file upload. Thay vào đó, hệ thống sử dụng `mean_vector` và `std_vector` đã lưu trong bảng `feature_stats` của cơ sở dữ liệu:
+
+```text
+query_feature_vector → Z-score theo mean_vector, std_vector của CSDL → L2 Normalization
+```
+
+Cách làm này đảm bảo vector truy vấn và vector trong database nằm trong cùng không gian chuẩn hóa, từ đó có thể so sánh trực tiếp với nhau.
+
+### ***Bước 10: So sánh độ tương đồng bằng Cosine Similarity***
+
+Sau khi chuẩn hóa, hệ thống so sánh từng vector segment của file truy vấn với các `normalized_vector` đã lưu trong SQLite. Độ tương đồng giữa hai segment được tính bằng cosine similarity.
+
+Vì các vector đã được chuẩn hóa L2, cosine similarity phản ánh mức độ gần nhau về hướng giữa hai vector đặc trưng. Giá trị similarity càng cao thì hai đoạn âm thanh càng gần nhau theo bộ thuộc tính đã xây dựng.
+
+### ***Bước 11: Tổng hợp điểm theo từng bản nhạc***
+
+Do một file âm thanh gồm nhiều segment, hệ thống không hiển thị kết quả theo từng segment riêng lẻ. Thay vào đó, kết quả được tổng hợp theo từng bản nhạc để đúng với yêu cầu của đề bài là trả về các file âm thanh giống nhất.
+
+Với mỗi segment của file truy vấn, hệ thống tìm segment khớp tốt nhất trong từng bản nhạc của database. Sau đó, điểm cuối cùng của một bản nhạc được tính bằng trung bình các điểm khớp tốt nhất theo từng segment truy vấn.
+
+Cách tổng hợp này giúp tránh việc một bản nhạc xuất hiện nhiều lần trong danh sách kết quả, đồng thời vẫn tận dụng được thông tin của nhiều đoạn âm thanh trong file truy vấn.
+
+### ***Bước 12: Sắp xếp và hiển thị kết quả***
+
+Sau khi tính điểm similarity cho từng bản nhạc, hệ thống sắp xếp các bản nhạc theo điểm giảm dần và trả về Top 5 hoặc Top 10 kết quả tùy theo lựa chọn của người dùng trên giao diện web.
+
+Mỗi kết quả hiển thị gồm:
+
+- Tên bản nhạc.
+- File âm thanh kết quả.
+- Điểm tương đồng trung bình.
+- Thời lượng file.
+- Cặp segment khớp nhất giữa file truy vấn và file trong cơ sở dữ liệu.
+
+Như vậy, quy trình thực hiện yêu cầu của hệ thống bắt đầu từ việc crawl dữ liệu nhạc, xây dựng cơ sở dữ liệu vector đặc trưng, xử lý file truy vấn và cuối cùng trả về danh sách các bản nhạc tương đồng nhất.
 
 ## **4.3. Quy trình thực hiện tìm kiếm**
 
@@ -825,9 +876,152 @@ Ngoài điểm similarity trung bình, hệ thống cũng lưu lại cặp segme
 
 Thông tin này giúp người dùng hiểu rõ kết quả tìm kiếm được tạo ra từ đoạn nào của file upload và đoạn nào trong file cơ sở dữ liệu.
 
-## **4.5. Kết quả trung gian hiển thị trên hệ thống**
+## **4.5. Kết quả trung gian của quá trình tìm kiếm**
 
-Trang kết quả của hệ thống không chỉ hiển thị danh sách bản nhạc giống nhất, mà còn hiển thị một số kết quả trung gian để minh họa quá trình tìm kiếm. Các thông tin trung gian gồm:
+Theo yêu cầu của đề bài, ngoài danh sách Top 5 bản nhạc tương đồng nhất, hệ thống cần trình bày được các kết quả trung gian sinh ra trong quá trình tìm kiếm. Các kết quả trung gian này giúp làm rõ file truy vấn đã được xử lý như thế nào, được chia thành bao nhiêu đoạn, mỗi đoạn có metadata gì, vector đặc trưng được chuẩn hóa ra sao và kết quả so khớp được tổng hợp như thế nào.
+
+Khi một file âm thanh được upload vào hệ thống, quá trình tìm kiếm tạo ra các nhóm kết quả trung gian sau.
+
+### ***4.5.1. Metadata của file truy vấn***
+
+Sau khi người dùng upload file âm thanh, hệ thống lưu file tạm vào thư mục `uploads/` và đọc các thông tin cơ bản của file. Đây là nhóm kết quả trung gian đầu tiên, dùng để xác định file đầu vào trước khi trích xuất đặc trưng.
+
+Các metadata của file truy vấn gồm:
+
+| Thuộc tính | Ý nghĩa |
+|---|---|
+| `query_name` | Tên file do người dùng upload |
+| `query_url` | Đường dẫn tạm để phát lại file truy vấn trên giao diện web |
+| `duration` | Thời lượng file truy vấn tính bằng giây |
+| `format` | Định dạng file âm thanh, ví dụ `mp3`, `wav`, `m4a` |
+| `query_segments` | Số đoạn âm thanh được tách ra từ file truy vấn |
+
+Ví dụ một file truy vấn dài khoảng 30 giây có thể sinh ra khoảng 11 segment khi sử dụng cửa sổ 5 giây và bước trượt 2,5 giây.
+
+### ***4.5.2. Kết quả chia đoạn file truy vấn***
+
+File truy vấn không được so sánh trực tiếp dưới dạng một file duy nhất. Thay vào đó, hệ thống chia file thành nhiều đoạn nhỏ để trích xuất đặc trưng cục bộ. Mỗi đoạn có metadata riêng gồm chỉ số đoạn, thời gian bắt đầu và thời gian kết thúc.
+
+Ví dụ kết quả chia đoạn của một file dài khoảng 30 giây:
+
+| Segment | Start time | End time | Ghi chú |
+|---:|---:|---:|---|
+| 1 | 0.00s | 5.00s | Đoạn đầu của file truy vấn |
+| 2 | 2.50s | 7.50s | Chồng lấn 50% với đoạn 1 |
+| 3 | 5.00s | 10.00s | Tiếp tục trượt 2,5 giây |
+| ... | ... | ... | ... |
+| 11 | 25.00s | 30.00s | Đoạn cuối nếu file dài khoảng 30 giây |
+
+Việc trình bày metadata từng đoạn giúp thấy rõ file truy vấn đã được tách thành các đơn vị nhỏ để so sánh với database. Các trường tương ứng trong chương trình gồm `segment_index`, `start_time` và `end_time`.
+
+### ***4.5.3. Vector đặc trưng của từng đoạn truy vấn***
+
+Sau khi chia đoạn, mỗi segment được trích xuất một vector đặc trưng 78 chiều. Vector này là kết quả trung gian quan trọng nhất vì nó là biểu diễn số của nội dung âm thanh.
+
+Do vector đầy đủ có 78 chiều nên khi trình bày trong báo cáo hoặc giao diện demo, có thể hiển thị một số nhóm đặc trưng tiêu biểu thay vì liệt kê toàn bộ 78 giá trị. Ví dụ:
+
+| Segment | Tempo | RMS mean | ZCR mean | Spectral centroid mean | MFCC mean | Chroma mean |
+|---:|---:|---:|---:|---:|---|---|
+| 1 | ... | ... | ... | ... | `[m1, m2, ..., m13]` | `[c1, c2, ..., c12]` |
+| 2 | ... | ... | ... | ... | `[m1, m2, ..., m13]` | `[c1, c2, ..., c12]` |
+| 3 | ... | ... | ... | ... | `[m1, m2, ..., m13]` | `[c1, c2, ..., c12]` |
+
+Trong chương trình, mỗi segment truy vấn có các trường đặc trưng như:
+
+- `tempo`, `onset_mean`, `onset_std`, `onset_density`.
+- `rms_mean`, `rms_std`.
+- `zcr_mean`, `zcr_std`.
+- `spectral_centroid_mean`, `spectral_centroid_std`.
+- `spectral_bandwidth_mean`, `spectral_bandwidth_std`.
+- `spectral_rolloff_mean`, `spectral_rolloff_std`.
+- `spectral_contrast_mean`, `spectral_contrast_std`.
+- `mfcc_mean`, `mfcc_std`.
+- `chroma_mean`, `chroma_std`.
+- `feature_vector` gồm đầy đủ 78 chiều.
+
+Các giá trị này cho biết đặc điểm âm thanh của từng đoạn, ví dụ đoạn nào có năng lượng lớn, đoạn nào có phổ tần số cao, đoạn nào có nhịp rõ hơn hoặc âm sắc khác biệt hơn.
+
+### ***4.5.4. Kết quả chuẩn hóa vector truy vấn***
+
+Sau khi có `feature_vector` gốc, hệ thống chuẩn hóa vector truy vấn bằng thống kê đã lưu trong database. Đây cũng là một kết quả trung gian quan trọng vì nếu không chuẩn hóa cùng hệ quy chiếu, việc so sánh cosine similarity sẽ không ổn định.
+
+Quy trình chuẩn hóa của từng segment truy vấn là:
+
+```text
+feature_vector gốc
+        ↓
+Z-score theo mean_vector và std_vector của database
+        ↓
+L2 Normalization
+        ↓
+normalized_vector
+```
+
+Các thông tin trung gian có thể trình bày gồm:
+
+| Thuộc tính | Ý nghĩa |
+|---|---|
+| `feature_dimension` | Số chiều vector, trong hệ thống là 78 |
+| `normalization` | Phương pháp chuẩn hóa: Z-score + L2 |
+| `mean_vector` | Vector trung bình 78 chiều lấy từ bảng `feature_stats` |
+| `std_vector` | Vector độ lệch chuẩn 78 chiều lấy từ bảng `feature_stats` |
+| `normalized_vector` | Vector cuối cùng dùng để so sánh cosine similarity |
+
+Trong giao diện hiện tại, hệ thống hiển thị số chiều vector và phương pháp chuẩn hóa. Khi trình bày báo cáo, có thể bổ sung ví dụ một vài chiều đầu của vector trước và sau chuẩn hóa để minh họa.
+
+Ví dụ minh họa:
+
+| Segment | Một vài chiều đầu của `feature_vector` | Một vài chiều đầu của `normalized_vector` |
+|---:|---|---|
+| 1 | `[tempo, onset_mean, onset_std, ...]` | `[v1, v2, v3, ...]` |
+| 2 | `[tempo, onset_mean, onset_std, ...]` | `[v1, v2, v3, ...]` |
+
+### ***4.5.5. Thông tin không gian tìm kiếm trong database***
+
+Trước khi so sánh, hệ thống đọc toàn bộ các segment đã chuẩn hóa trong SQLite. Đây là tập dữ liệu dùng để đối chiếu với file truy vấn.
+
+Các thông tin trung gian của database gồm:
+
+| Thông tin | Ý nghĩa |
+|---|---|
+| `tracks` | Số bản nhạc trong bảng `tracks` |
+| `db_segments` | Số segment trong bảng `track_segments` có `normalized_vector` |
+| `feature_dimension` | Số chiều vector đặc trưng |
+| `normalization` | Phương pháp chuẩn hóa của vector trong database |
+
+Ví dụ, nếu database có 1000 bản nhạc và mỗi bản nhạc có khoảng 11 segment thì hệ thống sẽ có khoảng 11000 vector segment để so sánh. Khi upload một file truy vấn có 11 segment, hệ thống sẽ lần lượt so sánh từng segment truy vấn với các segment trong database.
+
+### ***4.5.6. Kết quả so khớp segment***
+
+Sau khi có `normalized_vector` của file truy vấn và database, hệ thống tính cosine similarity giữa các segment. Kết quả trung gian ở bước này là các cặp segment có điểm tương đồng cao.
+
+Có thể trình bày kết quả so khớp theo dạng bảng:
+
+| Query segment | DB track | DB segment | Similarity | Nhận xét |
+|---:|---|---:|---:|---|
+| 1 | Bản nhạc A | 1 | ... | Đoạn khớp tốt nhất của query segment 1 trong bản nhạc A |
+| 2 | Bản nhạc A | 2 | ... | Đoạn khớp tốt nhất của query segment 2 trong bản nhạc A |
+| 3 | Bản nhạc B | 5 | ... | Đoạn có đặc trưng gần với query segment 3 |
+
+Trong quá trình tính toán, hệ thống không hiển thị tất cả các cặp segment vì số lượng cặp có thể rất lớn. Thay vào đó, hệ thống lưu lại các điểm tốt nhất để tổng hợp theo từng bản nhạc.
+
+### ***4.5.7. Kết quả tổng hợp điểm theo bản nhạc***
+
+Do đề bài yêu cầu trả về các file âm thanh giống nhất, hệ thống tổng hợp điểm từ mức segment lên mức track. Với mỗi bản nhạc, hệ thống lấy các điểm khớp tốt nhất theo từng segment truy vấn rồi tính trung bình.
+
+Bảng trung gian có thể trình bày như sau:
+
+| Track | Điểm tốt nhất với query segment 1 | Điểm tốt nhất với query segment 2 | ... | Điểm trung bình |
+|---|---:|---:|---:|---:|
+| Bản nhạc A | ... | ... | ... | ... |
+| Bản nhạc B | ... | ... | ... | ... |
+| Bản nhạc C | ... | ... | ... | ... |
+
+Điểm trung bình này chính là điểm dùng để xếp hạng kết quả. Cách tổng hợp theo track giúp tránh trường hợp cùng một bản nhạc xuất hiện nhiều lần trong Top 5 chỉ vì nhiều segment của nó đều giống file truy vấn.
+
+### ***4.5.8. Kết quả trung gian hiển thị trên giao diện***
+
+Trên trang kết quả của hệ thống demo, các thông tin trung gian được hiển thị gồm:
 
 - Số đoạn được tạo từ file tải lên.
 - Số đoạn âm thanh hiện có trong cơ sở dữ liệu.
@@ -837,7 +1031,9 @@ Trang kết quả của hệ thống không chỉ hiển thị danh sách bản 
 - Thời lượng file tải lên.
 - Cặp đoạn khớp nhất của từng kết quả.
 
-Ví dụ, nếu file truy vấn dài khoảng 30 giây, hệ thống có thể tạo khoảng 11 segment. Các segment này được so sánh với toàn bộ segment đã lưu trong database. Sau đó, hệ thống trả về danh sách các bản nhạc có điểm similarity trung bình cao nhất.
+Ví dụ, nếu file truy vấn dài khoảng 30 giây, hệ thống có thể tạo khoảng 11 segment. Các segment này được chuẩn hóa rồi so sánh với toàn bộ segment đã lưu trong database. Sau đó, hệ thống tổng hợp điểm theo từng bản nhạc và trả về danh sách các bản nhạc có điểm similarity trung bình cao nhất.
+
+Như vậy, kết quả trung gian của quá trình tìm kiếm không chỉ là số lượng segment hay số lượng bản nhạc trong database, mà còn bao gồm metadata của file truy vấn, metadata từng segment, vector đặc trưng, vector chuẩn hóa, các cặp segment khớp tốt và điểm tổng hợp theo từng bản nhạc.
 
 ## **4.6. Kết quả tìm kiếm đạt được**
 
@@ -868,3 +1064,164 @@ Hệ thống đã xây dựng được quy trình hoàn chỉnh từ thu thập 
 Việc sử dụng bộ đặc trưng 78 chiều kết hợp Z-score và L2 Normalization giúp cân bằng thang đo giữa các thuộc tính và phù hợp với cosine similarity. SQLite đáp ứng tốt yêu cầu lưu trữ và demo với quy mô dữ liệu vừa phải. Flask giúp hệ thống có giao diện đơn giản, dễ sử dụng và dễ trình bày khi demo.
 
 Tuy nhiên, do hệ thống không sử dụng chỉ mục vector, quá trình tìm kiếm hiện tại là quét tuần tự toàn bộ các segment trong database. Cách làm này phù hợp với phạm vi bài tập và giúp minh họa rõ cơ chế tìm kiếm, nhưng nếu mở rộng lên dữ liệu rất lớn thì cần xem xét thêm các kỹ thuật tối ưu như chỉ mục vector hoặc approximate nearest neighbor.
+
+# **PHẦN 5. DEMO HỆ THỐNG VÀ ĐÁNH GIÁ KẾT QUẢ**
+
+## **5.1. Mục tiêu demo**
+
+Phần demo nhằm kiểm chứng toàn bộ quy trình của hệ thống tìm kiếm bản nhạc tương đồng bằng âm thanh, từ bước người dùng upload file truy vấn đến bước hệ thống trả về danh sách các bản nhạc giống nhất. Thông qua giao diện web, người dùng có thể quan sát trực tiếp trạng thái cơ sở dữ liệu, gửi file âm thanh đầu vào, xem kết quả tìm kiếm, nghe lại file truy vấn và nghe các file kết quả.
+
+Demo tập trung vào các mục tiêu chính sau:
+
+- Kiểm tra khả năng nhận file âm thanh truy vấn từ người dùng.
+- Kiểm tra quá trình trích xuất đặc trưng và chuẩn hóa vector truy vấn.
+- Kiểm tra khả năng so sánh file truy vấn với các vector đã lưu trong SQLite.
+- Hiển thị Top 5 hoặc Top 10 bản nhạc tương đồng nhất.
+- Hiển thị một số thông tin trung gian để giải thích quá trình tìm kiếm.
+- Đánh giá mức độ phù hợp của kết quả trả về trong các trường hợp truy vấn khác nhau.
+
+## **5.2. Trang upload file truy vấn**
+
+Trang upload là trang đầu tiên của hệ thống demo. Trang này được xây dựng bằng Flask và có nhiệm vụ cung cấp giao diện để người dùng chọn file âm thanh cần truy vấn. Đây là điểm bắt đầu của quá trình tìm kiếm tương đồng.
+
+Trên trang upload, hệ thống hiển thị tiêu đề của ứng dụng là hệ thống tìm kiếm bản nhạc không lời tương đồng. Bên dưới tiêu đề là mô tả ngắn gọn về cách hệ thống hoạt động: file âm thanh được chia theo cửa sổ 5 giây, trích xuất vector đặc trưng 78 chiều, chuẩn hóa bằng Z-score kết hợp L2 Normalization và so sánh với dữ liệu trong cơ sở dữ liệu.
+
+Trang upload gồm hai nhóm thông tin chính.
+
+### ***5.2.1. Khu vực trạng thái database***
+
+Khu vực trạng thái database cho biết tình trạng dữ liệu hiện có trong hệ thống. Các thông tin được hiển thị gồm:
+
+- **Tracks**: số lượng bản nhạc đã được lưu trong bảng `tracks`.
+- **Segments**: số lượng đoạn âm thanh đã được tách và lưu trong bảng `track_segments`.
+- **Vector**: số chiều của vector đặc trưng, trong hệ thống này là 78 chiều.
+- **Chuẩn hóa**: phương pháp chuẩn hóa vector đang sử dụng, cụ thể là Z-score + L2.
+
+Phần này giúp người dùng biết cơ sở dữ liệu đã được build hay chưa và quy mô dữ liệu hiện tại là bao nhiêu. Nếu số lượng tracks và segments khác 0, hệ thống đã có dữ liệu để thực hiện tìm kiếm.
+
+### ***5.2.2. Khu vực upload file***
+
+Khu vực upload file cho phép người dùng chọn một file âm thanh từ máy tính để làm đầu vào truy vấn. Hệ thống hỗ trợ các định dạng âm thanh phổ biến như `mp3`, `wav`, `m4a`, `ogg`, `flac`, `aac` và `webm`.
+
+Ngoài ô chọn file, trang upload còn có lựa chọn số lượng kết quả cần hiển thị. Người dùng có thể chọn:
+
+- **5 bản ghi**: hiển thị 5 bản nhạc tương đồng nhất.
+- **10 bản ghi**: hiển thị 10 bản nhạc tương đồng nhất.
+
+Sau khi chọn file và số lượng kết quả, người dùng nhấn nút **Tìm kiếm**. Khi đó, file được gửi tới route `/search` của Flask. Hệ thống lưu file tạm vào thư mục `uploads/`, sau đó tiến hành trích xuất đặc trưng, chuẩn hóa vector truy vấn và so sánh với các vector đã lưu trong SQLite.
+
+Vai trò của trang upload là tạo giao diện nhập liệu đơn giản, trực quan và dễ sử dụng. Người dùng không cần thao tác trực tiếp với chương trình Python hay cơ sở dữ liệu mà chỉ cần chọn file âm thanh và nhấn nút tìm kiếm.
+
+## **5.3. Trang kết quả tìm kiếm**
+
+Sau khi hệ thống xử lý file truy vấn, người dùng được chuyển sang trang kết quả. Trang này hiển thị file âm thanh đã upload, các thông tin trung gian của quá trình tìm kiếm và danh sách các bản nhạc tương đồng nhất.
+
+### ***5.3.1. Khu vực thông tin file truy vấn***
+
+Ở đầu trang kết quả, hệ thống hiển thị tên file âm thanh mà người dùng đã upload. Bên dưới tên file là trình phát audio để người dùng có thể nghe lại file truy vấn. Việc hiển thị audio đầu vào giúp người dùng dễ so sánh trực tiếp giữa file truy vấn và các file kết quả.
+
+Trang này cũng có liên kết quay lại trang upload để thực hiện một truy vấn khác.
+
+### ***5.3.2. Khu vực kết quả trung gian***
+
+Khu vực kết quả trung gian mô tả một số thông tin sinh ra trong quá trình xử lý truy vấn. Các thông tin này gồm:
+
+- **Số đoạn tải lên**: số segment được tách ra từ file truy vấn.
+- **Số đoạn trong CSDL**: tổng số segment đã lưu trong cơ sở dữ liệu và được dùng để so sánh.
+- **Số bản nhạc**: số lượng track trong cơ sở dữ liệu.
+- **Vector**: số chiều vector và phương pháp chuẩn hóa đang sử dụng.
+- **Thời lượng file tải lên**: độ dài thực tế của file truy vấn tính bằng giây.
+
+Các thông tin trung gian này giúp giải thích rõ hơn quá trình tìm kiếm. Ví dụ, nếu file truy vấn dài hơn thì số segment truy vấn có thể nhiều hơn. Số segment trong cơ sở dữ liệu cho biết quy mô không gian tìm kiếm mà hệ thống phải duyệt qua.
+
+### ***5.3.3. Khu vực danh sách kết quả***
+
+Phần danh sách kết quả hiển thị các bản nhạc tương đồng nhất với file truy vấn, được sắp xếp theo điểm tương đồng giảm dần. Mỗi kết quả gồm các thông tin:
+
+- **Thứ hạng kết quả**: ví dụ `#1`, `#2`, `#3`, ...
+- **Tên bản nhạc**: lấy từ metadata trong cơ sở dữ liệu.
+- **Tên file âm thanh**: tên file được lưu trong thư mục `musics/`.
+- **Trình phát audio**: cho phép nghe trực tiếp file kết quả.
+- **Độ tương đồng trung bình**: điểm similarity sau khi tổng hợp theo track.
+- **Cặp đoạn khớp nhất**: cho biết segment nào của file truy vấn khớp tốt nhất với segment nào trong cơ sở dữ liệu.
+- **Thời lượng file**: thời lượng của bản nhạc kết quả.
+- **Nguồn Pixabay**: đường dẫn tới trang nguồn nếu metadata có lưu thông tin này.
+
+Điểm tương đồng càng cao thì bản nhạc càng gần với file truy vấn theo bộ đặc trưng âm thanh đã xây dựng. Tuy nhiên, điểm này không phải là xác suất đúng tuyệt đối mà là thước đo mức độ gần nhau trong không gian vector đặc trưng.
+
+Thông tin cặp đoạn khớp nhất giúp người dùng hiểu rõ hơn vì sao một bản nhạc được xếp hạng cao. Nếu một đoạn trong file truy vấn có nhịp điệu, năng lượng, phổ tần số hoặc âm sắc gần với một đoạn trong bản nhạc của cơ sở dữ liệu, điểm similarity giữa hai đoạn đó sẽ cao.
+
+## **5.4. Mẫu đánh giá kết quả demo**
+
+Để đánh giá hệ thống, có thể thực hiện demo với hai nhóm file truy vấn: file đã có trong cơ sở dữ liệu và file chưa có trong cơ sở dữ liệu. Mỗi nhóm kiểm thử phản ánh một khía cạnh khác nhau của bài toán tìm kiếm bản nhạc tương đồng.
+
+### ***5.4.1. Trường hợp 1: Truy vấn bằng file đã có trong cơ sở dữ liệu***
+
+Ở trường hợp này, chọn một file âm thanh trong thư mục `musics/` làm file truy vấn. Vì file này đã tồn tại trong cơ sở dữ liệu, kết quả mong đợi là chính file đó xuất hiện ở vị trí cao nhất hoặc nằm trong nhóm kết quả đầu tiên.
+
+Mẫu ghi nhận kết quả:
+
+| Tiêu chí | Kết quả quan sát |
+|---|---|
+| File truy vấn | Ví dụ: `0004_Caliente Nights...mp3` |
+| File có tồn tại trong CSDL không? | Có |
+| Số segment của file truy vấn | Ví dụ: 11 segment |
+| Số segment trong CSDL | Ví dụ: khoảng 11000 segment |
+| Kết quả đúng có xuất hiện trong Top 5 không? | Có |
+| Vị trí của kết quả đúng | Ví dụ: Top 1 |
+| Điểm similarity của kết quả đúng | Ví dụ: cao nhất trong danh sách |
+| Nhận xét | Hệ thống nhận ra file có nội dung trùng hoặc rất gần với dữ liệu đã lưu. |
+
+Nhận xét mẫu:
+
+Khi sử dụng file đã có trong cơ sở dữ liệu làm truy vấn, hệ thống trả về chính bản nhạc đó ở vị trí cao trong danh sách kết quả. Điều này cho thấy quy trình trích xuất đặc trưng, chuẩn hóa vector và so sánh cosine similarity hoạt động đúng. Các segment của file truy vấn có độ tương đồng cao với các segment tương ứng đã lưu trong cơ sở dữ liệu, do đó điểm similarity trung bình của track này cao hơn các bản nhạc khác.
+
+### ***5.4.2. Trường hợp 2: Truy vấn bằng file chưa có trong cơ sở dữ liệu***
+
+Ở trường hợp này, sử dụng một file âm thanh không nằm trong thư mục dữ liệu ban đầu. Vì file truy vấn chưa có trong cơ sở dữ liệu, hệ thống không thể trả về bản trùng tuyệt đối. Kết quả cần đánh giá theo mức độ giống nhau về nội dung âm thanh như nhịp độ, năng lượng, âm sắc, phổ tần số hoặc hòa âm.
+
+Mẫu ghi nhận kết quả:
+
+| Tiêu chí | Kết quả quan sát |
+|---|---|
+| File truy vấn | Ví dụ: một file nhạc không lời bên ngoài bộ dữ liệu |
+| File có tồn tại trong CSDL không? | Không |
+| Số segment của file truy vấn | Ví dụ: 8 segment |
+| Số kết quả hiển thị | Top 5 hoặc Top 10 |
+| Kết quả có cùng phong cách/nhịp điệu không? | Có/Không, mô tả cụ thể |
+| Kết quả có âm sắc hoặc năng lượng gần giống không? | Có/Không, mô tả cụ thể |
+| Điểm similarity của Top 1 | Ghi điểm quan sát được |
+| Nhận xét | Hệ thống trả về các bản nhạc gần giống về đặc trưng âm thanh, không phải bản trùng tuyệt đối. |
+
+Nhận xét mẫu:
+
+Khi sử dụng file chưa có trong cơ sở dữ liệu, hệ thống vẫn trả về danh sách các bản nhạc có độ tương đồng cao nhất theo vector đặc trưng. Các kết quả đầu thường có một số đặc điểm gần với file truy vấn như nhịp độ tương tự, mức năng lượng gần nhau hoặc màu sắc âm thanh tương đồng. Tuy nhiên, do hệ thống tìm kiếm dựa trên đặc trưng âm thanh tổng quát chứ không nhận dạng giai điệu chính xác tuyệt đối, kết quả có thể chỉ giống ở một số khía cạnh nhất định thay vì giống hoàn toàn về giai điệu.
+
+### ***5.4.3. Bảng đánh giá tổng hợp***
+
+Có thể tổng hợp kết quả demo bằng bảng sau:
+
+| Lần thử | Loại file truy vấn | Số segment truy vấn | Top 1 | Điểm Top 1 | Kết quả mong đợi | Đánh giá |
+|---|---|---:|---|---:|---|---|
+| 1 | File có trong CSDL | ... | ... | ... | File gốc xuất hiện Top 1/Top 5 | Đạt/Chưa đạt |
+| 2 | File có trong CSDL | ... | ... | ... | File gốc xuất hiện Top 1/Top 5 | Đạt/Chưa đạt |
+| 3 | File ngoài CSDL | ... | ... | ... | Kết quả có đặc trưng âm thanh gần giống | Đạt/Chưa đạt |
+| 4 | File ngoài CSDL | ... | ... | ... | Kết quả có đặc trưng âm thanh gần giống | Đạt/Chưa đạt |
+
+Tiêu chí đánh giá đề xuất:
+
+- Với file đã có trong cơ sở dữ liệu, hệ thống được xem là đạt nếu file gốc xuất hiện trong Top 5, tốt hơn nếu xuất hiện ở Top 1.
+- Với file chưa có trong cơ sở dữ liệu, hệ thống được xem là đạt nếu các kết quả đầu có một số đặc trưng âm thanh tương đồng khi nghe lại, chẳng hạn nhịp độ, mức năng lượng, âm sắc hoặc phong cách phối khí.
+- Kết quả cần được đánh giá kết hợp giữa điểm similarity và cảm nhận nghe thực tế, vì vector đặc trưng chỉ biểu diễn một phần nội dung âm nhạc.
+
+## **5.5. Nhận xét kết quả đạt được**
+
+Qua quá trình demo, hệ thống đã đáp ứng được yêu cầu cơ bản của đề bài. Hệ thống cho phép người dùng upload một file âm thanh, xử lý file truy vấn, tìm kiếm trong cơ sở dữ liệu SQLite và trả về danh sách các bản nhạc tương đồng nhất. Giao diện web gồm hai trang đơn giản, dễ sử dụng: trang upload file và trang hiển thị kết quả.
+
+Các kết quả trung gian như số segment truy vấn, số segment trong cơ sở dữ liệu, số bản nhạc, số chiều vector và phương pháp chuẩn hóa giúp quá trình demo rõ ràng hơn. Người dùng không chỉ xem được danh sách kết quả cuối cùng mà còn hiểu được hệ thống đã xử lý file âm thanh theo các bước nào.
+
+Đối với truy vấn bằng file đã có trong cơ sở dữ liệu, hệ thống có khả năng trả về file gốc ở thứ hạng cao. Điều này chứng minh rằng cách biểu diễn vector đặc trưng và cơ chế cosine similarity có hiệu quả trong việc nhận ra các file giống nhau. Đối với truy vấn bằng file chưa có trong cơ sở dữ liệu, hệ thống vẫn có thể tìm được các bản nhạc gần giống theo một số đặc điểm âm thanh như nhịp điệu, năng lượng hoặc âm sắc.
+
+Tuy nhiên, hệ thống vẫn còn một số hạn chế. Thứ nhất, việc tìm kiếm được thực hiện bằng cách quét tuần tự toàn bộ segment nên tốc độ sẽ giảm nếu dữ liệu mở rộng lớn hơn nhiều. Thứ hai, bộ đặc trưng thủ công 78 chiều chưa thể biểu diễn đầy đủ toàn bộ cấu trúc giai điệu và cảm xúc của bản nhạc. Thứ ba, kết quả tương đồng đôi khi phụ thuộc vào từng đoạn cụ thể của file truy vấn, nhất là khi file upload có độ dài ngắn hoặc có phần âm thanh không đại diện cho toàn bộ bài.
+
+Nhìn chung, hệ thống đã hoàn thành mục tiêu demo của đề tài: xây dựng được cơ sở dữ liệu âm thanh, trích xuất đặc trưng, tìm kiếm tương đồng bằng vector và hiển thị kết quả trên giao diện web. Đây là nền tảng có thể tiếp tục mở rộng bằng các kỹ thuật tối ưu tìm kiếm vector, bổ sung đặc trưng học sâu hoặc cải thiện cách tổng hợp điểm theo toàn bộ bài nhạc.

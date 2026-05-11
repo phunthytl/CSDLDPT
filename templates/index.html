@@ -9,9 +9,8 @@
 <body>
   <main class="container">
     <section class="card hero">
-      <p class="eyebrow">SQLite3 + Flask demo</p>
-      <h1>Tìm kiếm bản nhạc tương đồng bằng âm thanh</h1>
-      <p class="muted">Upload một đoạn audio, hệ thống trích xuất vector {{ summary.feature_dimension }} chiều theo cửa sổ 5 giây, chuẩn hóa L2 và trả về các bản nhạc giống nhất.</p>
+      <h1>Hệ thống tìm kiếm bản nhạc không lời tương đồng</h1>
+      <p class="muted">Upload một đoạn audio, hệ thống trích xuất vector {{ summary.feature_dimension }} chiều theo cửa sổ 5 giây, chuẩn hóa z-score + L2 và trả về các bản nhạc giống nhất.</p>
     </section>
 
     <section class="grid">
@@ -20,12 +19,8 @@
         <dl class="stats">
           <div><dt>Tracks</dt><dd>{{ summary.tracks }}</dd></div>
           <div><dt>Segments</dt><dd>{{ summary.segments }}</dd></div>
-          <div><dt>Ready</dt><dd>{{ summary.ready_segments }}</dd></div>
         </dl>
         <p class="muted small">Vector: {{ summary.feature_dimension }} chiều · Chuẩn hóa: {{ summary.normalization }}</p>
-        {% if summary.ready_segments == 0 %}
-          <p class="notice">Chưa có database hoàn chỉnh. Chạy lệnh <code>python build_database.py</code> trước khi demo.</p>
-        {% endif %}
       </div>
 
       <div class="card">
